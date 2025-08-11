@@ -1,0 +1,290 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(240, 1.9608%, 98.0392%);
+  --foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --card: hsl(180, 6.6667%, 97.0588%);
+  --card-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --popover: hsl(240, 1.9608%, 98.0392%);
+  --popover-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --primary: hsl(49.0278%, 70.4225%, 57.2549%);
+  --primary-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --secondary: hsl(51.7857%, 15.7895%, 52.5490%);
+  --secondary-foreground: hsl(240, 1.9608%, 98.0392%);
+  --muted: hsl(240, 1.9608%, 90%);
+  --muted-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --accent: hsl(211.5789, 51.3514%, 92.7451%);
+  --accent-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --destructive: hsl(353.8043%, 81.6092%, 56.4706%);
+  --destructive-foreground: hsl(240, 1.9608%, 98.0392%);
+  --border: hsl(201.4286, 30.4348%, 90.9804%);
+  --input: hsl(200, 23.0769%, 97.4510%);
+  --ring: hsl(49.0278%, 70.4225%, 57.2549%);
+  --chart-1: hsl(203.8863, 88.2845%, 53.1373%);
+  --chart-2: hsl(159.7826, 100%, 36.0784%);
+  --chart-3: hsl(42.0290, 92.8251%, 56.2745%);
+  --chart-4: hsl(147.1429, 78.5047%, 41.9608%);
+  --chart-5: hsl(341.4894, 75.2000%, 50.9804%);
+  --sidebar: hsl(180, 6.6667%, 97.0588%);
+  --sidebar-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --sidebar-primary: hsl(49.0278%, 70.4225%, 57.2549%);
+  --sidebar-primary-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --sidebar-accent: hsl(211.5789, 51.3514%, 92.7451%);
+  --sidebar-accent-foreground: hsl(49.0278%, 70.4225%, 57.2549%);
+  --sidebar-border: hsl(205.0000, 25.0000%, 90.5882%);
+  --sidebar-ring: hsl(49.0278%, 70.4225%, 57.2549%);
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: Menlo, monospace;
+  --radius: 0.75rem;
+  --ccw-yellow: hsl(49.0278%, 70.4225%, 57.2549%);
+  --ccw-brown: hsl(51.7857%, 15.7895%, 52.5490%);
+  --ccw-green: hsl(155.2632%, 61.8421%, 41.9608%);
+  --ccw-red: hsl(353.8043%, 81.6092%, 56.4706%);
+  --ccw-dark: hsl(201.7647%, 20.7843%, 18.4314%);
+  --ccw-bg: hsl(240, 1.9608%, 98.0392%);
+}
+
+.dark {
+  --background: hsl(0, 0%, 0%);
+  --foreground: hsl(200, 6.6667%, 91.1765%);
+  --card: hsl(228, 9.8039%, 10%);
+  --card-foreground: hsl(0, 0%, 85.0980%);
+  --popover: hsl(0, 0%, 0%);
+  --popover-foreground: hsl(200, 6.6667%, 91.1765%);
+  --primary: hsl(49.0278%, 70.4225%, 57.2549%);
+  --primary-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --secondary: hsl(195.0000, 15.3846%, 94.9020%);
+  --secondary-foreground: hsl(201.7647%, 20.7843%, 18.4314%);
+  --muted: hsl(0, 0%, 9.4118%);
+  --muted-foreground: hsl(210, 3.3898%, 46.2745%);
+  --accent: hsl(210, 5.2632%, 14.9020%);
+  --accent-foreground: hsl(200, 6.6667%, 91.1765%);
+  --destructive: hsl(353.8043%, 81.6092%, 56.4706%);
+  --destructive-foreground: hsl(240, 1.9608%, 98.0392%);
+  --border: hsl(210, 5.2632%, 14.9020%);
+  --input: hsl(207.6923, 27.6596%, 18.4314%);
+  --ring: hsl(49.0278%, 70.4225%, 57.2549%);
+  --ccw-yellow: hsl(49.0278%, 70.4225%, 57.2549%);
+  --ccw-brown: hsl(51.7857%, 15.7895%, 52.5490%);
+  --ccw-green: hsl(155.2632%, 61.8421%, 41.9608%);
+  --ccw-red: hsl(353.8043%, 81.6092%, 56.4706%);
+  --ccw-dark: hsl(200, 6.6667%, 91.1765%);
+  --ccw-bg: hsl(0, 0%, 0%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-ccw-bg text-ccw-dark;
+  }
+}
+
+@layer utilities {
+  .bg-ccw-yellow {
+    background-color: var(--ccw-yellow);
+  }
+  
+  .bg-ccw-brown {
+    background-color: var(--ccw-brown);
+  }
+  
+  .bg-ccw-green {
+    background-color: var(--ccw-green);
+  }
+  
+  .bg-ccw-red {
+    background-color: var(--ccw-red);
+  }
+  
+  .bg-ccw-dark {
+    background-color: var(--ccw-dark);
+  }
+  
+  .bg-ccw-bg {
+    background-color: var(--ccw-bg);
+  }
+  
+  .text-ccw-yellow {
+    color: var(--ccw-yellow);
+  }
+  
+  .text-ccw-brown {
+    color: var(--ccw-brown);
+  }
+  
+  .text-ccw-green {
+    color: var(--ccw-green);
+  }
+  
+  .text-ccw-red {
+    color: var(--ccw-red);
+  }
+  
+  .text-ccw-dark {
+    color: var(--ccw-dark);
+  }
+  
+  .border-ccw-yellow {
+    border-color: var(--ccw-yellow);
+  }
+  
+  .border-ccw-brown {
+    border-color: var(--ccw-brown);
+  }
+}
+
+@layer components {
+  /* Enhanced Form Styling */
+  .form-title {
+    @apply text-lg font-semibold text-ccw-dark relative;
+  }
+  
+  .form-title::before {
+    content: '';
+    @apply absolute -left-1 top-0 bottom-0 w-1 bg-ccw-yellow rounded-r;
+  }
+  
+  .form-section-title {
+    @apply text-base font-medium text-ccw-brown border-b border-ccw-yellow/30 pb-2 mb-4;
+  }
+  
+  .form-label-enhanced {
+    @apply text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md border-l-4 border-ccw-yellow;
+  }
+  
+  .form-field-group {
+    @apply bg-gray-50/50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200/60 dark:border-gray-700/60;
+  }
+  
+  .dialog-title-enhanced {
+    @apply text-lg font-semibold text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-gray-700 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600;
+  }
+  
+  .dialog-title-enhanced {
+    @apply text-xl font-semibold text-ccw-dark flex items-center gap-3;
+  }
+  
+  .dialog-title-enhanced::before {
+    content: '';
+    @apply w-1 h-6 bg-ccw-yellow rounded;
+  }
+  
+  .card-title-enhanced {
+    @apply text-lg font-semibold text-ccw-dark border-b-2 border-ccw-yellow/30 pb-2 mb-4;
+  }
+}
+  
+  .text-ccw-red {
+    color: var(--ccw-red);
+  }
+  
+  .text-ccw-dark {
+    color: var(--ccw-dark);
+  }
+  
+  .border-ccw-yellow {
+    border-color: var(--ccw-yellow);
+  }
+  
+  .border-ccw-brown {
+    border-color: var(--ccw-brown);
+  }
+  
+  .border-ccw-green {
+    border-color: var(--ccw-green);
+  }
+  
+  .border-ccw-red {
+    border-color: var(--ccw-red);
+  }
+
+  /* Fix selection colors to prevent disappearing text on hover */
+  ::selection {
+    background-color: hsl(var(--ccw-yellow) / 0.25);
+    color: var(--ccw-dark);
+  }
+
+  ::-moz-selection {
+    background-color: hsl(var(--ccw-yellow) / 0.25);
+    color: var(--ccw-dark);
+  }
+
+  /* Improve hover states for better visibility */
+  .hover\:bg-gray-100:hover {
+    background-color: hsl(var(--ccw-yellow) / 0.08) !important;
+    color: var(--ccw-dark) !important;
+  }
+
+  /* Fix table row hover states */
+  tr:hover {
+    background-color: hsl(var(--ccw-yellow) / 0.05) !important;
+  }
+
+  /* Fix dropdown selection highlighting */
+  [data-radix-select-item] {
+    color: var(--ccw-dark) !important;
+  }
+
+  [data-radix-select-item]:hover,
+  [data-radix-select-item][data-highlighted] {
+    background-color: hsl(210, 10%, 95%) !important;
+    color: var(--ccw-dark) !important;
+  }
+
+  [data-radix-select-item]:focus {
+    background-color: hsl(210, 10%, 92%) !important;
+    color: var(--ccw-dark) !important;
+  }
+
+  /* Additional select content styling */
+  [data-radix-select-content] {
+    background-color: white !important;
+  }
+
+  /* Fix general select item styling */
+  .select-item {
+    color: var(--ccw-dark) !important;
+  }
+
+  .select-item:hover,
+  .select-item[data-highlighted] {
+    background-color: hsl(210, 10%, 95%) !important;
+    color: var(--ccw-dark) !important;
+  }
+
+  /* Fix button and interactive element hover states with better contrast */
+  .cursor-pointer:hover,
+  [role="button"]:hover,
+  [data-testid^="link-"]:hover,
+  [data-testid^="button-"]:hover {
+    background-color: hsl(var(--ccw-yellow) / 0.12) !important;
+    color: var(--ccw-dark) !important;
+  }
+
+  /* Ensure nav items have proper hover contrast */
+  nav a:hover,
+  .nav-item:hover {
+    background-color: hsl(var(--ccw-yellow) / 0.15) !important;
+    color: var(--ccw-dark) !important;
+  }
+
+  /* Fix select dropdowns and form elements */
+  select:hover,
+  input:hover,
+  textarea:hover {
+    border-color: var(--ccw-yellow) !important;
+    background-color: hsl(var(--ccw-bg)) !important;
+  }
+
+  /* Ensure text remains visible on all hover states */
+  *:hover {
+    text-shadow: none !important;
+  }
