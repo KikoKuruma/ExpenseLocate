@@ -1,1 +1,35 @@
 
+services:
+  api:
+    build: ./server
+    env_file: .env                   # put your server env vars here
+    ports:
+      - "3000:3000"                  # host:container, adjust if needed
+    depends_on:
+      - db
+    restart: always
+
+  web:
+    build: ./client
+    ports:
+      - "80:80"
+    restart: always
+
+  # Optional Postgres (Drizzle suggests you might be using a DB)
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: expenselocate
+      POSTGRES_USER: expenselocate
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expenselocate -d expenselocate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+volumes:
+  pgdata:
