@@ -609,15 +609,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Expense not found" });
       }
 
-      // Only allow deletion if:
-      // 1. User owns the expense (or is admin/approver) AND
-      // 2. Expense is not approved (to prevent deleting approved expenses)
-      if (!(user?.role === "admin" || user?.role === "approver") && expense.userId !== userId) {
-        return res.status(403).json({ message: "You can only delete your own expenses" });
-      }
-      
-      if (expense.status === 'approved') {
-        return res.status(403).json({ message: "Cannot delete approved expenses" });
+      // Permission logic:
+      // 1. Admin/Approver can delete any expense regardless of status (for Entry Management)
+      // 2. Regular users can only delete their own non-approved expenses
+      if (user?.role === "admin" || user?.role === "approver") {
+        // Administrators and approvers can delete any expense
+        console.log(`Admin/Approver ${userId} deleting expense ${req.params.id} with status ${expense.status}`);
+      } else {
+        // Regular users can only delete their own expenses
+        if (expense.userId !== userId) {
+          return res.status(403).json({ message: "You can only delete your own expenses" });
+        }
+        
+        // Regular users cannot delete approved expenses
+        if (expense.status === 'approved') {
+          return res.status(403).json({ message: "Cannot delete approved expenses" });
+        }
       }
 
       await storage.deleteExpense(req.params.id);

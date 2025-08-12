@@ -31,9 +31,10 @@ interface ExpenseFormProps {
   onClose?: () => void;
   onSuccess?: () => void;
   onSubmit?: (data: any) => void;
-  initialData?: Partial<FormData>;
+  initialData?: Partial<FormData> & { id?: string };
   isLoading?: boolean;
   submitButtonText?: string;
+  isEditing?: boolean;
 }
 
 export default function ExpenseForm({ 
@@ -42,7 +43,8 @@ export default function ExpenseForm({
   onSubmit,
   initialData,
   isLoading = false,
-  submitButtonText = "Submit Expense"
+  submitButtonText = "Submit Expense",
+  isEditing = false
 }: ExpenseFormProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -139,12 +141,70 @@ export default function ExpenseForm({
     },
   });
 
+  const updateExpenseMutation = useMutation({
+    mutationFn: async (data: FormData) => {
+      if (!initialData?.id) {
+        throw new Error('No expense ID provided for update');
+      }
+
+      const response = await fetch(`/api/expenses/${initialData.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          description: data.description,
+          amount: parseFloat(data.amount),
+          date: data.date,
+          categoryId: data.categoryId,
+          userId: data.userId,
+          notes: data.notes,
+          // Reset to pending when edited
+          status: 'pending'
+        }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update expense');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      // Invalidate all expense-related queries for real-time updates
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/my"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/my/recent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/my-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/analytics/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/analytics/monthly"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/expenses"] });
+      if (onSuccess) {
+        onSuccess();
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSubmit = async (data: FormData) => {
     if (onSubmit) {
-      // Edit mode - use custom submit handler
+      // Use custom submit handler if provided
       onSubmit(data);
+    } else if (isEditing && initialData?.id) {
+      // Edit mode - use update mutation
+      updateExpenseMutation.mutate(data);
     } else {
-      // Create mode - use default creation logic
+      // Create mode - use create mutation
       createExpenseMutation.mutate(data);
     }
   };

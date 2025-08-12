@@ -1,0 +1,24 @@
+# Docker Compose Override for Development
+# This file provides development-specific overrides
+# Copy to docker-compose.override.yml for local development
+
+version: '3.8'
+
+services:
+  app:
+    build:
+      target: development
+    environment:
+      NODE_ENV: development
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "5000:5000"
+    command: npm run dev
+
+  postgres:
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./dev-data:/var/lib/postgresql/data
