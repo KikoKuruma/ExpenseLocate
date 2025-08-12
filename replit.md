@@ -3,6 +3,7 @@
 ExpenseLocator is a production-ready, full-stack expense tracking application for business expense management. It features a three-tier permission system (Basic User, Approver, Administrator) and integrates Google OAuth for authentication. Users can submit expense reports with receipt uploads, approvers manage approvals, and administrators handle user management and category configuration. The application provides a complete expense reporting solution with a professional utility industry theme and comprehensive error handling. 
 
 ## Key Capabilities
+- **Entry Management System**: Complete expense lifecycle management with view, edit, and delete functionality
 - **Comprehensive Reporting**: Excel export functionality with proper formatting
 - **Advanced Dashboard**: Visual analytics with filtering by day/month/quarter views  
 - **Category Management**: Color customization and hierarchical organization
@@ -10,6 +11,7 @@ ExpenseLocator is a production-ready, full-stack expense tracking application fo
 - **Database Administration**: Import/export functionality with auto-category creation, secure data purging
 - **Enhanced User Experience**: Error boundaries, mobile-responsive design, comprehensive validation
 - **Deployment Ready**: Production-grade error handling, input validation, and security measures
+- **Docker Containerization**: Complete containerization setup with Google Cloud VM deployment scripts
 
 # User Preferences
 
@@ -83,3 +85,11 @@ App Name: ExpenseLocator - redirect landing page directly to login without marke
 ## File Processing
 - **Multer**: Node.js middleware for file uploads.
 - **XLSX library**: Used for Excel export functionality.
+
+## Deployment & Infrastructure
+- **Docker**: Container runtime and multi-stage builds.
+- **Docker Compose**: Container orchestration with PostgreSQL, nginx, and app services.
+- **Google Cloud Platform**: VM hosting with automated deployment scripts.
+- **Nginx**: Reverse proxy with SSL/TLS termination and rate limiting.
+- **Let's Encrypt**: Automated SSL certificate management.
+- **Systemd**: Service management and auto-startup configuration.

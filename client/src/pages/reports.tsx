@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import Sidebar from "@/components/sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,15 +10,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { 
   FileBarChart, 
   Calendar,
   DollarSign,
   Filter,
   Download,
-  Eye
+  Eye,
+  Edit,
+  Trash2,
+  TrendingUp,
+  Users,
+  Receipt
 } from "lucide-react";
 import * as XLSX from 'xlsx';
+import ExpenseForm from "@/components/expense-form";
+import { apiRequest } from "@/lib/queryClient";
 import type { Expense, Category, User } from "@shared/schema";
 
 interface ReportFilters {
@@ -41,9 +50,14 @@ const statusColors = {
   rejected: "bg-red-100 text-red-800 border-red-200",
 };
 
-export default function Reports() {
+export default function EntryManagement() {
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading } = useAuth();
+  const queryClient = useQueryClient();
+  
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   
   // Initialize filters with current month
   const now = new Date();
@@ -174,6 +188,45 @@ export default function Reports() {
     return user ? `${user.firstName} ${user.lastName}` : 'Unknown User';
   };
 
+  // Delete expense mutation
+  const deleteExpenseMutation = useMutation({
+    mutationFn: async (expenseId: string) => {
+      const response = await apiRequest("DELETE", `/api/expenses/${expenseId}`);
+      if (!response.ok) {
+        throw new Error("Failed to delete expense");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/expenses"] });
+      toast({
+        title: "Success",
+        description: "Expense deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleEdit = (expense: Expense) => {
+    setSelectedExpense(expense);
+    setShowEditDialog(true);
+  };
+
+  const handleViewDetails = (expense: Expense) => {
+    setSelectedExpense(expense);
+    setShowDetailsDialog(true);
+  };
+
+  const handleDelete = async (expenseId: string) => {
+    deleteExpenseMutation.mutate(expenseId);
+  };
+
   const exportToExcel = () => {
     if (!reportData?.expenses || reportData.expenses.length === 0) {
       toast({
@@ -267,15 +320,76 @@ export default function Reports() {
             {/* Header */}
             <div className="mb-8">
               <div className="flex items-center mb-4">
-                <FileBarChart className="w-8 h-8 text-ccw-yellow mr-3" />
+                <Edit className="w-8 h-8 text-ccw-yellow mr-3" />
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                  Expense Reports
+                  Entry Management
                 </h1>
               </div>
               <p className="text-gray-600 dark:text-gray-400">
-                Generate and analyze expense reports with detailed filtering options
+                View, edit, and manage expense entries with advanced filtering and export capabilities
               </p>
             </div>
+
+            {/* Essential Stats Callouts */}
+            {reportData && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <Card className="border-l-4 border-l-blue-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Total Entries</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {reportData.expenseCount}
+                        </p>
+                      </div>
+                      <Receipt className="w-8 h-8 text-blue-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="border-l-4 border-l-green-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Total Amount</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {formatCurrency(reportData.totalAmount)}
+                        </p>
+                      </div>
+                      <DollarSign className="w-8 h-8 text-green-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="border-l-4 border-l-yellow-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Pending</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {reportData.expenses.filter(e => e.status === 'pending').length}
+                        </p>
+                      </div>
+                      <TrendingUp className="w-8 h-8 text-yellow-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="border-l-4 border-l-purple-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Unique Users</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {new Set(reportData.expenses.map(e => e.userId)).size}
+                        </p>
+                      </div>
+                      <Users className="w-8 h-8 text-purple-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* Filters Card */}
             <Card className="mb-6">
@@ -580,6 +694,9 @@ export default function Reports() {
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                               Submitted By
                             </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                              Actions
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
@@ -620,6 +737,57 @@ export default function Reports() {
                                   ? `${expense.user.firstName} ${expense.user.lastName}`
                                   : expense.user?.email || 'Unknown User'}
                               </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <div className="flex items-center space-x-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleViewDetails(expense)}
+                                    data-testid={`button-view-${expense.id}`}
+                                    className="text-blue-600 hover:text-blue-900"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEdit(expense)}
+                                    data-testid={`button-edit-${expense.id}`}
+                                    className="text-green-600 hover:text-green-900"
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        data-testid={`button-delete-${expense.id}`}
+                                        className="text-red-600 hover:text-red-900"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete Expense</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Are you sure you want to delete this expense? This action cannot be undone.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => handleDelete(expense.id)}
+                                          className="bg-red-600 hover:bg-red-700"
+                                        >
+                                          Delete
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -639,6 +807,115 @@ export default function Reports() {
           </div>
         </main>
       </div>
+
+      {/* Expense Details Dialog */}
+      <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Expense Details</DialogTitle>
+          </DialogHeader>
+          {selectedExpense && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Description</p>
+                  <p className="text-gray-900">{selectedExpense.description}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Amount</p>
+                  <p className="text-gray-900 font-semibold">{formatCurrency(parseFloat(selectedExpense.amount.toString()))}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Date</p>
+                  <p className="text-gray-900">{format(new Date(selectedExpense.date), 'PPP')}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Status</p>
+                  <Badge className={statusColors[selectedExpense.status as keyof typeof statusColors]}>
+                    {selectedExpense.status}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Category</p>
+                  <div className="flex items-center space-x-2">
+                    <div 
+                      className="w-3 h-3 rounded border"
+                      style={{ 
+                        backgroundColor: (selectedExpense as any).category?.color || '#6B7280',
+                        borderColor: (selectedExpense as any).category?.color || '#6B7280'
+                      }}
+                    />
+                    <span className="text-gray-900">{(selectedExpense as any).category?.name || 'Unknown'}</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Submitted By</p>
+                  <p className="text-gray-900">
+                    {(selectedExpense as any).user?.firstName && (selectedExpense as any).user?.lastName 
+                      ? `${(selectedExpense as any).user.firstName} ${(selectedExpense as any).user.lastName}`
+                      : (selectedExpense as any).user?.email || 'Unknown User'}
+                  </p>
+                </div>
+              </div>
+              
+              {selectedExpense.notes && (
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Notes</p>
+                  <p className="text-gray-900">{selectedExpense.notes}</p>
+                </div>
+              )}
+              
+              {selectedExpense.receiptUrl && (
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Receipt</p>
+                  <a 
+                    href={selectedExpense.receiptUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 underline"
+                  >
+                    View Receipt
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Expense Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Edit Expense</DialogTitle>
+          </DialogHeader>
+          {selectedExpense && (
+            <ExpenseForm
+              initialData={{
+                ...selectedExpense,
+                date: new Date(selectedExpense.date).toISOString().split('T')[0],
+                amount: selectedExpense.amount.toString(),
+                id: selectedExpense.id
+              }}
+              isEditing={true}
+              onClose={() => {
+                setShowEditDialog(false);
+                setSelectedExpense(null);
+              }}
+              onSuccess={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/reports/expenses"] });
+                setShowEditDialog(false);
+                setSelectedExpense(null);
+                toast({
+                  title: "Success",
+                  description: "Expense updated successfully and sent for re-approval",
+                });
+              }}
+              submitButtonText="Update Expense"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

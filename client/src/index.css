@@ -49,6 +49,19 @@
   --ccw-bg: hsl(240, 1.9608%, 98.0392%);
 }
 
+/* Fix toast transparency issues */
+.toast-viewport [data-state="open"] {
+  background: var(--background) !important;
+  opacity: 1 !important;
+  border: 1px solid var(--border) !important;
+}
+
+.toast-viewport [data-state="open"][data-destructive] {
+  background: var(--destructive) !important;
+  color: var(--destructive-foreground) !important;
+  border-color: var(--destructive) !important;
+}
+
 .dark {
   --background: hsl(0, 0%, 0%);
   --foreground: hsl(200, 6.6667%, 91.1765%);

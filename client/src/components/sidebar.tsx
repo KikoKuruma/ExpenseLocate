@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle, LayoutDashboard, Receipt, Plus, Settings, LogOut, FileBarChart, ClipboardCheck, Menu, X } from "lucide-react";
+import { CheckCircle, LayoutDashboard, Receipt, Plus, Settings, LogOut, FileBarChart, ClipboardCheck, Menu, X, Edit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -40,12 +40,12 @@ export default function Sidebar() {
     });
   }
 
-  // Add Reports for approvers and administrators
+  // Add Entry Management for approvers and administrators
   if (user?.role === "approver" || user?.role === "admin") {
     navigation.push({
-      name: "Reports",
+      name: "Entry Management",
       href: "/reports",
-      icon: FileBarChart,
+      icon: Edit,
       current: location === "/reports",
     });
   }
