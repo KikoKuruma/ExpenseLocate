@@ -135,6 +135,11 @@ gcloud compute firewall-rules create allow-http \
 gcloud compute firewall-rules create allow-https \
   --allow tcp:443 --source-ranges 0.0.0.0/0 --target-tags https-server
 
+# Allow direct access to the application port if you're not using the nginx profile
+# (adjust 5000 if you've changed APP_PORT)
+gcloud compute firewall-rules create allow-app-port \
+  --allow tcp:5000 --source-ranges 0.0.0.0/0 --target-tags http-server
+
 # SSH into the instance
 gcloud compute ssh expenselocator-vm
 
@@ -269,12 +274,12 @@ expenselocator-maintenance restart
    sudo chown -R expenselocator:expenselocator /opt/expenselocator
    ```
 
-3. **Port 80 already in use:**
+3. **Application port already in use:**
    ```bash
-   # Check what's using port 80
-   sudo netstat -tulpn | grep :80
-   
-   # Stop conflicting service
+   # Check what's using the application port (default: 5000)
+   sudo netstat -tulpn | grep :5000
+
+   # Stop the conflicting service or change APP_PORT in .env
    sudo systemctl stop apache2  # or nginx
    ```
 

@@ -19,6 +19,25 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Development stage
+FROM node:18-alpine AS development
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files and install all dependencies needed for development
+COPY package*.json ./
+RUN npm ci
+
+# Copy source code (will be overridden by bind mount in development)
+COPY . .
+
+# Expose default development port
+EXPOSE 5000
+
+# Default command for development
+CMD ["npm", "run", "dev"]
+
 # Production stage
 FROM node:18-alpine AS production
 
