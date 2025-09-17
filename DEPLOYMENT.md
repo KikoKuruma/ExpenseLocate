@@ -83,6 +83,16 @@ docker-compose up -d
 | `SESSION_SECRET` | Session encryption key | `your-32-char-secret` |
 | `ALLOWED_ORIGINS` | Allowed origins | `https://your-domain.com` |
 
+### Optional Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REPLIT_DOMAINS` | Comma-separated list of deployed Replit domains. Required only when using Replit SSO. | _(unset)_ |
+| `DEFAULT_ADMIN_ID` | Override the fallback admin user ID when Replit SSO is disabled. | `local-admin` |
+| `DEFAULT_ADMIN_EMAIL` | Override the fallback admin email when Replit SSO is disabled. | `admin@example.com` |
+| `DEFAULT_ADMIN_FIRST_NAME` | Override the fallback admin first name when Replit SSO is disabled. | `Local` |
+| `DEFAULT_ADMIN_LAST_NAME` | Override the fallback admin last name when Replit SSO is disabled. | `Admin` |
+
 ### Setting up Replit Authentication
 
 1. Go to [Replit Account Settings](https://replit.com/account/authentication)
@@ -92,6 +102,9 @@ docker-compose up -d
    - **Description:** Expense management system
    - **Redirect URI:** `https://your-domain.com/api/auth/callback`
 4. Copy the Client ID and Secret to your `.env` file
+
+If you do not configure `REPLIT_DOMAINS`, ExpenseLocator will automatically provision a local admin session using the values
+above so you can access the application immediately in Docker or other self-hosted environments.
 
 ## Deployment Options
 
