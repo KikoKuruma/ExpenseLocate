@@ -72,7 +72,7 @@ This guide provides instructions for deploying ExpenseLocator in a Docker contai
 | `POSTGRES_PASSWORD` | Database password | Yes |
 | `SESSION_SECRET` | Session encryption key | Yes |
 | `ALLOWED_ORIGINS` | Comma-separated allowed origins | Yes |
-| `APP_PORT` | Application port (default: 80) | No |
+| `APP_PORT` | Application port (default: 5000) | No |
 | `POSTGRES_PORT` | Database port (default: 5432) | No |
 
 ### Replit Authentication Setup
@@ -188,7 +188,7 @@ sudo systemctl status expenselocator
 
 ### Option 2: Using Cloudflare or other CDN
 
-Configure your CDN to proxy requests to your VM's IP address on port 80.
+Configure your CDN to proxy requests to your VM's IP address on the port specified by `APP_PORT` (default: 5000).
 
 ## Monitoring and Logs
 
@@ -302,10 +302,10 @@ The installation script configures UFW with the following rules:
 
 3. **Port conflicts:**
    ```bash
-   # Check what's using port 80
-   sudo netstat -tulpn | grep :80
-   
-   # Change APP_PORT in .env
+   # Check what's using the application port (default: 5000)
+   sudo netstat -tulpn | grep :5000
+
+   # Change APP_PORT in .env if needed
    nano .env
    ```
 
