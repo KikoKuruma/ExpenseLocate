@@ -6,8 +6,8 @@ import StatsCards from "@/components/stats-cards";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Clock, CheckCircle, XCircle, AlertCircle, Calendar, DollarSign, TrendingUp, BarChart3, Eye } from "lucide-react";
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
+import { Plus, Clock, CheckCircle, XCircle, AlertCircle, Calendar, TrendingUp, BarChart3, Eye } from "lucide-react";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useState } from "react";
 import ExpenseForm from "@/components/expense-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -111,10 +111,20 @@ export default function Dashboard() {
 
 // Expense Charts Component
 function ExpenseCharts() {
-  const { user } = useAuth();
   const { toast } = useToast();
 
-  const { data: categoryData, isLoading: isCategoryLoading } = useQuery({
+  const {
+    data: categoryData = [],
+    isLoading: isCategoryLoading,
+    isError: isCategoryError,
+    error: categoryError,
+  } = useQuery<Array<{
+    categoryId: string;
+    categoryName: string;
+    categoryColor: string | null;
+    totalAmount: number;
+    expenseCount: number;
+  }>>({
     queryKey: ['/api/expenses/analytics/categories'],
     queryFn: async () => {
       const response = await fetch('/api/expenses/analytics/categories', { credentials: 'include' });
@@ -129,7 +139,16 @@ function ExpenseCharts() {
     retry: false,
   });
 
-  const { data: monthlyData, isLoading: isMonthlyLoading } = useQuery({
+  const {
+    data: monthlyAnalytics = [],
+    isLoading: isMonthlyLoading,
+    isError: isMonthlyError,
+    error: monthlyError,
+  } = useQuery<Array<{
+    month: string;
+    totalAmount: number;
+    expenseCount: number;
+  }>>({
     queryKey: ['/api/expenses/analytics/monthly'],
     queryFn: async () => {
       const response = await fetch('/api/expenses/analytics/monthly', { credentials: 'include' });
@@ -144,7 +163,48 @@ function ExpenseCharts() {
     retry: false,
   });
 
+  const unauthorizedError = [categoryError, monthlyError].find(
+    error => error instanceof Error && error.message.startsWith('401')
+  );
+  const otherError = [categoryError, monthlyError].find(
+    error => error instanceof Error && !error.message.startsWith('401')
+  );
+
+  useEffect(() => {
+    if (!unauthorizedError) {
+      return;
+    }
+    toast({
+      title: 'Unauthorized',
+      description: 'You are logged out. Logging in again...',
+      variant: 'destructive',
+    });
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      window.location.href = '/api/login';
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [toast, unauthorizedError]);
+
+  useEffect(() => {
+    if (!otherError) {
+      return;
+    }
+    toast({
+      title: 'Error',
+      description: otherError.message || 'Failed to load analytics data',
+      variant: 'destructive',
+    });
+  }, [toast, otherError]);
+
   const isLoading = isCategoryLoading || isMonthlyLoading;
+  const currencyFormatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+  });
 
   if (isLoading) {
     return (
@@ -153,7 +213,7 @@ function ExpenseCharts() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-ccw-yellow" />
-              Expense by Status
+              Expenses by Category
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center justify-center h-64">
@@ -175,95 +235,86 @@ function ExpenseCharts() {
     );
   }
 
-  if (!userExpenses || userExpenses.length === 0) {
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-ccw-yellow" />
-              Expense by Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-center h-64 text-gray-500">
-            No expenses submitted yet
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-ccw-yellow" />
-              Monthly Expenses
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-center h-64 text-gray-500">
-            No expenses to display
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Process data for status pie chart
-  const statusData = userExpenses.reduce((acc: any, expense: any) => {
-    const status = expense.status;
-    acc[status] = (acc[status] || 0) + parseFloat(expense.amount);
-    return acc;
-  }, {});
-
-  const pieChartData = Object.entries(statusData).map(([status, amount]) => ({
-    name: status.charAt(0).toUpperCase() + status.slice(1),
-    value: amount as number,
-    count: userExpenses.filter((e: any) => e.status === status).length
+  const pieChartData = categoryData.map((category, index, array) => ({
+    name: category.categoryName || 'Unknown Category',
+    value: Number(category.totalAmount ?? 0),
+    count: Number(category.expenseCount ?? 0),
+    color: category.categoryColor || `hsl(${(index * 360) / Math.max(array.length, 1)}, 70%, 50%)`,
   }));
 
-  // Process data for monthly bar chart (last 6 months)
-  const monthlyData = userExpenses.reduce((acc: any, expense: any) => {
-    const month = new Date(expense.createdAt).toLocaleString('default', { month: 'short', year: '2-digit' });
-    acc[month] = (acc[month] || 0) + parseFloat(expense.amount);
-    return acc;
-  }, {});
+  const monthLabelFormatter = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    year: '2-digit',
+  });
 
-  const barChartData = Object.entries(monthlyData)
-    .map(([month, amount]) => ({ month, amount: amount as number }))
-    .slice(-6); // Last 6 months
+  const monthlyDataWithDate = monthlyAnalytics.map(monthData => {
+    const [yearString, monthString] = monthData.month.split('-');
+    const year = Number(yearString);
+    const month = Number(monthString);
+    const hasValidDate = !Number.isNaN(year) && !Number.isNaN(month);
+    const dateKey = hasValidDate ? new Date(year, month - 1, 1) : null;
+    const label = dateKey ? monthLabelFormatter.format(dateKey) : monthData.month;
+    return {
+      month: label,
+      amount: Number(monthData.totalAmount ?? 0),
+      count: Number(monthData.expenseCount ?? 0),
+      sortValue: dateKey ? dateKey.getTime() : Number.MIN_SAFE_INTEGER,
+    };
+  });
 
-  const COLORS = {
-    'Pending': '#ECCD37', // CCW yellow
-    'Approved': '#10B981', // Green
-    'Rejected': '#EF4444', // Red
+  const barChartData = monthlyDataWithDate
+    .sort((a, b) => a.sortValue - b.sortValue)
+    .slice(-6)
+    .map(({ sortValue: _sortValue, ...rest }) => rest);
+
+  const hasPieData = pieChartData.some(entry => entry.value > 0);
+  const hasBarData = barChartData.some(entry => entry.amount > 0);
+
+  const formatCurrencyTooltip = (value: number | string) => {
+    const numericValue = typeof value === 'number' ? value : Number(value);
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+    return [currencyFormatter.format(safeValue), 'Amount'];
   };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Status Pie Chart */}
+      {/* Category Pie Chart */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-ccw-yellow" />
-            Your Expenses by Status
+            Expenses by Category
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={pieChartData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, value, count }) => `${name}: $${value.toFixed(2)} (${count})`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {pieChartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[entry.name as keyof typeof COLORS] || '#99976E'} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value: any) => [`$${value.toFixed(2)}`, 'Amount']} />
-            </PieChart>
-          </ResponsiveContainer>
+          {isCategoryError ? (
+            <div className="flex items-center justify-center h-64 text-red-500 text-center px-4">
+              Unable to load category analytics. Please try again later.
+            </div>
+          ) : hasPieData ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={pieChartData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, value, count }) => `${name}: ${currencyFormatter.format(Number(value))} (${count})`}
+                  outerRadius={80}
+                  dataKey="value"
+                >
+                  {pieChartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color || '#99976E'} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={formatCurrencyTooltip} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-64 text-gray-500">
+              No expenses submitted yet
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -276,15 +327,25 @@ function ExpenseCharts() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={barChartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis tickFormatter={(value) => `$${value}`} />
-              <Tooltip formatter={(value: any) => [`$${value.toFixed(2)}`, 'Amount']} />
-              <Bar dataKey="amount" fill="#ECCD37" />
-            </BarChart>
-          </ResponsiveContainer>
+          {isMonthlyError ? (
+            <div className="flex items-center justify-center h-64 text-red-500 text-center px-4">
+              Unable to load monthly analytics. Please try again later.
+            </div>
+          ) : hasBarData ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={barChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis tickFormatter={value => currencyFormatter.format(Number(value))} />
+                <Tooltip formatter={formatCurrencyTooltip} />
+                <Bar dataKey="amount" fill="#ECCD37" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-64 text-gray-500">
+              No expenses to display
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
