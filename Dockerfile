@@ -7,8 +7,11 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install dependencies needed for building the application
+# We install both production and development dependencies here because the
+# build step relies on tooling such as Vite and TypeScript that are only
+# present in devDependencies.
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -38,9 +41,7 @@ RUN npm ci --only=production && npm cache clean --force
 
 # Copy built application from builder stage
 COPY --from=builder --chown=expenseapp:nodejs /app/dist ./dist
-COPY --from=builder --chown=expenseapp:nodejs /app/client/dist ./client/dist
 COPY --from=builder --chown=expenseapp:nodejs /app/shared ./shared
-COPY --from=builder --chown=expenseapp:nodejs /app/uploads ./uploads
 
 # Copy additional required files
 COPY --chown=expenseapp:nodejs drizzle.config.ts ./
