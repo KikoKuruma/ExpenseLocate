@@ -25,6 +25,8 @@ __export(schema_exports, {
   insertExpenseSchema: () => insertExpenseSchema,
   insertUserSchema: () => insertUserSchema,
   sessions: () => sessions,
+  updateExpenseSchema: () => updateExpenseSchema,
+  updateUserSchema: () => updateUserSchema,
   users: () => users
 });
 import { sql } from "drizzle-orm";
@@ -91,6 +93,12 @@ var insertUserSchema = createInsertSchema(users).omit({
   createdAt: true,
   updatedAt: true
 });
+var updateUserSchema = createInsertSchema(users).omit({
+  id: true,
+  role: true,
+  createdAt: true,
+  updatedAt: true
+}).partial();
 var insertCategorySchema = createInsertSchema(categories).omit({
   id: true,
   createdAt: true,
@@ -101,8 +109,19 @@ var insertExpenseSchema = createInsertSchema(expenses).omit({
   createdAt: true,
   updatedAt: true
 }).extend({
-  amount: z.coerce.number()
+  amount: z.coerce.number(),
+  date: z.coerce.date()
 });
+var updateExpenseSchema = createInsertSchema(expenses).omit({
+  id: true,
+  userId: true,
+  submittedBy: true,
+  createdAt: true,
+  updatedAt: true
+}).extend({
+  amount: z.coerce.number(),
+  date: z.coerce.date()
+}).partial();
 var UserRole = {
   USER: "user",
   APPROVER: "approver",
@@ -122,10 +141,8 @@ var categoryRelations = relations(categories, ({ one, many }) => ({
 }));
 
 // server/db.ts
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-serverless";
-import ws from "ws";
-neonConfig.webSocketConstructor = ws;
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 if (!process.env.DATABASE_URL) {
   throw new Error(
     "DATABASE_URL must be set. Did you forget to provision a database?"
@@ -151,10 +168,18 @@ var DatabaseStorage = class {
     return await db.select().from(users).orderBy(users.firstName, users.lastName);
   }
   async upsertUser(userData) {
-    const [user] = await db.insert(users).values(userData).onConflictDoUpdate({
+    const [user] = await db.insert(users).values({
+      ...userData,
+      role: userData.role || "user"
+      // Ensure new users get basic user role
+    }).onConflictDoUpdate({
       target: users.id,
       set: {
-        ...userData,
+        email: userData.email,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        profileImageUrl: userData.profileImageUrl,
+        // Don't update role on existing users during OAuth login
         updatedAt: /* @__PURE__ */ new Date()
       }
     }).returning();
@@ -168,6 +193,13 @@ var DatabaseStorage = class {
       createdAt: /* @__PURE__ */ new Date(),
       updatedAt: /* @__PURE__ */ new Date()
     }).returning();
+    return user;
+  }
+  async updateUser(id, userData) {
+    const [user] = await db.update(users).set({
+      ...userData,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq(users.id, id)).returning();
     return user;
   }
   async updateUserRole(id, role) {
@@ -424,6 +456,79 @@ var DatabaseStorage = class {
       expenseCount: Number(result.expenseCount || 0)
     }));
   }
+  // New time period specific analytics methods
+  async getExpensesByPeriod(userId, period) {
+    const now = /* @__PURE__ */ new Date();
+    let startDate;
+    switch (period) {
+      case "day":
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case "month":
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case "quarter":
+        const currentQuarter = Math.floor(now.getMonth() / 3);
+        startDate = new Date(now.getFullYear(), currentQuarter * 3, 1);
+        break;
+    }
+    const results = await db.select({
+      categoryId: expenses.categoryId,
+      categoryName: categories.name,
+      categoryColor: categories.color,
+      totalAmount: sql2`COALESCE(SUM(CAST(${expenses.amount} AS DECIMAL)), 0)`,
+      expenseCount: sql2`COUNT(*)`
+    }).from(expenses).leftJoin(categories, eq(expenses.categoryId, categories.id)).where(
+      and(
+        eq(expenses.userId, userId),
+        sql2`${expenses.date} >= ${startDate}`
+      )
+    ).groupBy(expenses.categoryId, categories.name, categories.color);
+    return results.map((result) => ({
+      categoryId: result.categoryId || "unknown",
+      categoryName: result.categoryName || "Unknown Category",
+      categoryColor: result.categoryColor,
+      totalAmount: Number(result.totalAmount || 0),
+      expenseCount: Number(result.expenseCount || 0)
+    }));
+  }
+  async getDailyExpenses(userId, year, month) {
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0);
+    const results = await db.select({
+      date: sql2`TO_CHAR(${expenses.date}, 'YYYY-MM-DD')`,
+      totalAmount: sql2`COALESCE(SUM(CAST(${expenses.amount} AS DECIMAL)), 0)`,
+      expenseCount: sql2`COUNT(*)`
+    }).from(expenses).where(
+      and(
+        eq(expenses.userId, userId),
+        sql2`${expenses.date} >= ${startDate}`,
+        sql2`${expenses.date} <= ${endDate}`
+      )
+    ).groupBy(sql2`TO_CHAR(${expenses.date}, 'YYYY-MM-DD')`).orderBy(sql2`TO_CHAR(${expenses.date}, 'YYYY-MM-DD')`);
+    return results.map((result) => ({
+      date: result.date || "Unknown",
+      totalAmount: Number(result.totalAmount || 0),
+      expenseCount: Number(result.expenseCount || 0)
+    }));
+  }
+  async getQuarterlyExpenses(userId, year) {
+    const results = await db.select({
+      quarter: sql2`CONCAT('Q', CAST(CEILING(CAST(EXTRACT(MONTH FROM ${expenses.date}) AS DECIMAL) / 3) AS INT))`,
+      totalAmount: sql2`COALESCE(SUM(CAST(${expenses.amount} AS DECIMAL)), 0)`,
+      expenseCount: sql2`COUNT(*)`
+    }).from(expenses).where(
+      and(
+        eq(expenses.userId, userId),
+        sql2`EXTRACT(YEAR FROM ${expenses.date}) = ${year}`
+      )
+    ).groupBy(sql2`CEILING(CAST(EXTRACT(MONTH FROM ${expenses.date}) AS DECIMAL) / 3)`).orderBy(sql2`CEILING(CAST(EXTRACT(MONTH FROM ${expenses.date}) AS DECIMAL) / 3)`);
+    return results.map((result) => ({
+      quarter: result.quarter || "Q1",
+      totalAmount: Number(result.totalAmount || 0),
+      expenseCount: Number(result.expenseCount || 0)
+    }));
+  }
   async getExpenseStats(userId) {
     const now = /* @__PURE__ */ new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -475,6 +580,251 @@ var DatabaseStorage = class {
       thisMonthExpenses: Number(thisMonthResult[0]?.total || 0)
     };
   }
+  // Reports operations
+  async getExpenseReport(filters) {
+    const submittedByAlias = alias(users, "submittedByUser");
+    const conditions = [];
+    if (filters.startDate) {
+      conditions.push(sql2`${expenses.date} >= ${filters.startDate}`);
+    }
+    if (filters.endDate) {
+      conditions.push(sql2`${expenses.date} <= ${filters.endDate}`);
+    }
+    if (filters.status) {
+      conditions.push(eq(expenses.status, filters.status));
+    }
+    if (filters.categoryId) {
+      conditions.push(eq(expenses.categoryId, filters.categoryId));
+    }
+    if (filters.userId) {
+      conditions.push(eq(expenses.userId, filters.userId));
+    }
+    const whereClause = conditions.length > 0 ? and(...conditions) : void 0;
+    const whereCondition = whereClause ?? sql2`true`;
+    const expenseQuery = db.select({
+      id: expenses.id,
+      userId: expenses.userId,
+      submittedBy: expenses.submittedBy,
+      categoryId: expenses.categoryId,
+      description: expenses.description,
+      amount: expenses.amount,
+      date: expenses.date,
+      status: expenses.status,
+      receiptUrl: expenses.receiptUrl,
+      notes: expenses.notes,
+      createdAt: expenses.createdAt,
+      updatedAt: expenses.updatedAt,
+      category: categories,
+      user: {
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email
+      },
+      submittedByUser: {
+        firstName: submittedByAlias.firstName,
+        lastName: submittedByAlias.lastName,
+        email: submittedByAlias.email
+      }
+    }).from(expenses).leftJoin(categories, eq(expenses.categoryId, categories.id)).leftJoin(users, eq(expenses.userId, users.id)).leftJoin(submittedByAlias, eq(expenses.submittedBy, submittedByAlias.id));
+    const expenseResults = await expenseQuery.where(whereCondition).orderBy(desc(expenses.date));
+    let totalsQuery = db.select({
+      totalAmount: sql2`COALESCE(SUM(CAST(${expenses.amount} AS DECIMAL)), 0)`,
+      expenseCount: sql2`COUNT(*)`
+    }).from(expenses);
+    const [totals] = await totalsQuery.where(whereCondition);
+    const formattedExpenses = expenseResults.map((result) => ({
+      ...result,
+      category: result.category || {
+        id: "",
+        name: "Unknown",
+        description: null,
+        parentId: null,
+        color: null,
+        createdAt: null,
+        updatedAt: null
+      },
+      user: result.user || { firstName: null, lastName: null, email: null },
+      submittedByUser: result.submittedByUser?.firstName ? result.submittedByUser : void 0
+    }));
+    return {
+      expenses: formattedExpenses,
+      totalAmount: Number(totals?.totalAmount || 0),
+      expenseCount: Number(totals?.expenseCount || 0)
+    };
+  }
+  // Database Management operations
+  async getAllExpensesForExport() {
+    const submittedByAlias = alias(users, "submittedByUser");
+    const expenseResults = await db.select({
+      id: expenses.id,
+      userId: expenses.userId,
+      submittedBy: expenses.submittedBy,
+      categoryId: expenses.categoryId,
+      description: expenses.description,
+      amount: expenses.amount,
+      date: expenses.date,
+      status: expenses.status,
+      receiptUrl: expenses.receiptUrl,
+      notes: expenses.notes,
+      createdAt: expenses.createdAt,
+      updatedAt: expenses.updatedAt,
+      category: categories,
+      user: {
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email
+      },
+      submittedByUser: {
+        firstName: submittedByAlias.firstName,
+        lastName: submittedByAlias.lastName,
+        email: submittedByAlias.email
+      }
+    }).from(expenses).leftJoin(categories, eq(expenses.categoryId, categories.id)).leftJoin(users, eq(expenses.userId, users.id)).leftJoin(submittedByAlias, eq(expenses.submittedBy, submittedByAlias.id)).orderBy(desc(expenses.date));
+    return expenseResults.map((result) => ({
+      ...result,
+      category: result.category || {
+        id: "",
+        name: "Unknown",
+        description: null,
+        parentId: null,
+        color: null,
+        createdAt: null,
+        updatedAt: null
+      },
+      user: result.user || { firstName: null, lastName: null, email: null },
+      submittedByUser: result.submittedByUser?.firstName ? result.submittedByUser : void 0
+    }));
+  }
+  async importExpenses(expenseData) {
+    const errors = [];
+    let imported = 0;
+    for (let index2 = 0; index2 < expenseData.length; index2++) {
+      const expense = expenseData[index2];
+      try {
+        const hasAnyData = Object.values(expense).some(
+          (value) => value !== null && value !== void 0 && value !== ""
+        );
+        if (!hasAnyData) {
+          continue;
+        }
+        const mappedExpense = {
+          userId: expense.userId || expense["User ID"],
+          categoryId: expense.categoryId || expense["Category ID"],
+          description: expense.description || expense["Description"],
+          amount: expense.amount || expense["Amount"],
+          date: expense.date || expense["Date"],
+          status: expense.status || expense["Status"],
+          notes: expense.notes || expense["Notes"],
+          submittedBy: expense.submittedBy || expense["Submitted By ID"],
+          receiptUrl: expense.receiptUrl || expense["Receipt URL"]
+        };
+        const missingFields = [];
+        if (!mappedExpense.userId) missingFields.push("User ID");
+        if (!mappedExpense.categoryId) missingFields.push("Category ID");
+        if (!mappedExpense.description) missingFields.push("Description");
+        if (!mappedExpense.amount) missingFields.push("Amount");
+        if (missingFields.length > 0) {
+          const rowDesc = mappedExpense.description || `Row ${index2 + 1}`;
+          errors.push(`Skipping expense "${rowDesc}": Missing required fields: ${missingFields.join(", ")}`);
+          continue;
+        }
+        let expenseDate;
+        if (typeof mappedExpense.date === "string") {
+          expenseDate = new Date(mappedExpense.date);
+          if (isNaN(expenseDate.getTime())) {
+            errors.push(`Skipping expense: Invalid date format for "${mappedExpense.description}"`);
+            continue;
+          }
+        } else if (mappedExpense.date instanceof Date) {
+          expenseDate = mappedExpense.date;
+        } else {
+          expenseDate = /* @__PURE__ */ new Date();
+        }
+        const amount = typeof mappedExpense.amount === "string" ? parseFloat(mappedExpense.amount) : mappedExpense.amount;
+        if (isNaN(amount) || amount <= 0) {
+          errors.push(`Skipping expense: Invalid amount for "${mappedExpense.description}"`);
+          continue;
+        }
+        const userExists = await db.select().from(users).where(eq(users.id, mappedExpense.userId)).limit(1);
+        if (!userExists.length) {
+          errors.push(`Skipping expense: User ID "${mappedExpense.userId}" not found for "${mappedExpense.description}"`);
+          continue;
+        }
+        let finalCategoryId = mappedExpense.categoryId;
+        const categoryName = expense["Category Name"] || expense["Category"];
+        if (categoryName && !mappedExpense.categoryId) {
+          const existingCategory = await db.select().from(categories).where(eq(categories.name, categoryName)).limit(1);
+          if (existingCategory.length) {
+            finalCategoryId = existingCategory[0].id;
+          } else {
+            const [newCategory] = await db.insert(categories).values({
+              name: categoryName,
+              description: `Auto-created from import: ${categoryName}`,
+              color: "#6366F1"
+              // Default color
+            }).returning();
+            finalCategoryId = newCategory.id;
+          }
+        } else {
+          const categoryExists = await db.select().from(categories).where(eq(categories.id, finalCategoryId)).limit(1);
+          if (!categoryExists.length) {
+            errors.push(`Skipping expense: Category ID "${finalCategoryId}" not found for "${mappedExpense.description}"`);
+            continue;
+          }
+        }
+        await db.insert(expenses).values({
+          userId: mappedExpense.userId,
+          submittedBy: mappedExpense.submittedBy || mappedExpense.userId,
+          // Default to self-submitted
+          categoryId: finalCategoryId,
+          description: mappedExpense.description,
+          amount: amount.toString(),
+          date: expenseDate,
+          status: mappedExpense.status || "pending",
+          receiptUrl: mappedExpense.receiptUrl || null,
+          notes: mappedExpense.notes || null
+        });
+        imported++;
+      } catch (error) {
+        const rowDesc = expense.description || expense["Description"] || `Row ${index2 + 1}`;
+        errors.push(`Failed to import expense "${rowDesc}": ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
+    }
+    return { imported, errors };
+  }
+  async purgeAllExpenses() {
+    const result = await db.delete(expenses);
+    return result.rowCount || 0;
+  }
+  async getDatabaseStats() {
+    const [expenseCount] = await db.select({ count: sql2`COUNT(*)` }).from(expenses);
+    const [userCount] = await db.select({ count: sql2`COUNT(*)` }).from(users);
+    const [categoryCount] = await db.select({ count: sql2`COUNT(*)` }).from(categories);
+    const statusCounts = await db.select({
+      status: expenses.status,
+      count: sql2`COUNT(*)`
+    }).from(expenses).groupBy(expenses.status);
+    const sevenDaysAgo = /* @__PURE__ */ new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const recentActivity = await db.select({
+      date: sql2`DATE(${expenses.createdAt})`,
+      count: sql2`COUNT(*)`
+    }).from(expenses).where(sql2`${expenses.createdAt} >= ${sevenDaysAgo}`).groupBy(sql2`DATE(${expenses.createdAt})`).orderBy(sql2`DATE(${expenses.createdAt}) DESC`);
+    return {
+      totalExpenses: Number(expenseCount.count),
+      totalUsers: Number(userCount.count),
+      totalCategories: Number(categoryCount.count),
+      expensesByStatus: statusCounts.map((s) => ({
+        status: s.status,
+        count: Number(s.count)
+      })),
+      recentActivity: recentActivity.map((r) => ({
+        date: r.date,
+        action: "expense_created",
+        count: Number(r.count)
+      }))
+    };
+  }
 };
 var storage = new DatabaseStorage();
 
@@ -485,9 +835,8 @@ import passport from "passport";
 import session from "express-session";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
-if (!process.env.REPLIT_DOMAINS) {
-  throw new Error("Environment variable REPLIT_DOMAINS not provided");
-}
+var replitDomains = (process.env.REPLIT_DOMAINS ?? "").split(",").map((domain) => domain.trim()).filter((domain) => domain.length > 0);
+var replitAuthEnabled = replitDomains.length > 0;
 var getOidcConfig = memoize(
   async () => {
     return await client.discovery(
@@ -513,8 +862,11 @@ function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: true,
-      maxAge: sessionTtl
+      secure: process.env.NODE_ENV === "production",
+      // Only secure in production
+      maxAge: sessionTtl,
+      sameSite: "lax"
+      // Add sameSite for better compatibility
     }
   });
 }
@@ -524,28 +876,97 @@ function updateUserSession(user, tokens) {
   user.refresh_token = tokens.refresh_token;
   user.expires_at = user.claims?.exp;
 }
-async function upsertUser(claims) {
-  await storage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"]
-  });
+async function upsertUser(userData) {
+  try {
+    const result = await storage.upsertUser(userData);
+    console.log("User upserted successfully:", result.id, result.email, result.role);
+    return result;
+  } catch (error) {
+    console.error("Error upserting user:", error);
+    throw error;
+  }
 }
 async function setupAuth(app2) {
   app2.set("trust proxy", 1);
   app2.use(getSession());
   app2.use(passport.initialize());
   app2.use(passport.session());
+  if (!replitAuthEnabled) {
+    const fallbackUserId = process.env.DEFAULT_ADMIN_ID ?? "local-admin";
+    const fallbackEmail = process.env.DEFAULT_ADMIN_EMAIL ?? "admin@example.com";
+    const fallbackFirstName = process.env.DEFAULT_ADMIN_FIRST_NAME ?? "Local";
+    const fallbackLastName = process.env.DEFAULT_ADMIN_LAST_NAME ?? "Admin";
+    const fallbackUser = await storage.upsertUser({
+      id: fallbackUserId,
+      email: fallbackEmail,
+      firstName: fallbackFirstName,
+      lastName: fallbackLastName,
+      profileImageUrl: null,
+      role: UserRole.ADMIN
+    });
+    console.warn(
+      "REPLIT_DOMAINS not set. Falling back to a local admin session for development and Docker environments."
+    );
+    app2.use((req, _res, next) => {
+      const claims = {
+        sub: fallbackUser.id,
+        email: fallbackUser.email,
+        first_name: fallbackUser.firstName ?? fallbackFirstName,
+        last_name: fallbackUser.lastName ?? fallbackLastName
+      };
+      req.user = {
+        id: fallbackUser.id,
+        claims,
+        expires_at: Math.floor(Date.now() / 1e3) + 60 * 60 * 24 * 365
+      };
+      req.isAuthenticated = () => true;
+      next();
+    });
+    app2.get("/api/login", (_req, res) => {
+      res.json({
+        message: "Replit SSO disabled. Using local admin session.",
+        user: {
+          id: fallbackUser.id,
+          email: fallbackUser.email
+        }
+      });
+    });
+    app2.get("/api/callback", (_req, res) => {
+      res.redirect("/");
+    });
+    app2.get("/api/logout", (_req, res) => {
+      res.json({ message: "Replit SSO disabled. Logout is a no-op." });
+    });
+    return;
+  }
   const config = await getOidcConfig();
   const verify = async (tokens, verified) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
+    try {
+      const claims = tokens.claims();
+      console.log("OAuth verification for user:", claims?.sub, claims?.email);
+      const user = {};
+      updateUserSession(user, tokens);
+      if (claims) {
+        await upsertUser({
+          id: claims["sub"],
+          email: claims["email"],
+          firstName: claims["first_name"],
+          lastName: claims["last_name"],
+          profileImageUrl: claims["profile_image_url"],
+          role: "user"
+          // Explicitly set role for new users
+        });
+      } else {
+        throw new Error("No claims found in tokens");
+      }
+      console.log("User successfully authenticated and upserted");
+      verified(null, user);
+    } catch (error) {
+      console.error("Error during OAuth verification:", error);
+      verified(error, null);
+    }
   };
-  for (const domain of process.env.REPLIT_DOMAINS.split(",")) {
+  for (const domain of replitDomains) {
     const strategy = new Strategy(
       {
         name: `replitauth:${domain}`,
@@ -560,21 +981,21 @@ async function setupAuth(app2) {
   passport.serializeUser((user, cb) => cb(null, user));
   passport.deserializeUser((user, cb) => cb(null, user));
   app2.get("/api/login", (req, res, next) => {
-    const domain = process.env.REPLIT_DOMAINS.split(",")[0];
+    const domain = replitDomains[0];
     passport.authenticate(`replitauth:${domain}`, {
       prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"]
     })(req, res, next);
   });
   app2.get("/api/callback", (req, res, next) => {
-    const domain = process.env.REPLIT_DOMAINS.split(",")[0];
+    const domain = replitDomains[0];
     passport.authenticate(`replitauth:${domain}`, {
       successReturnToOrRedirect: "/",
       failureRedirect: "/api/login"
     })(req, res, next);
   });
   app2.get("/api/logout", (req, res) => {
-    const domain = process.env.REPLIT_DOMAINS.split(",")[0];
+    const domain = replitDomains[0];
     req.logout(() => {
       res.redirect(
         client.buildEndSessionUrl(config, {
@@ -617,10 +1038,16 @@ var isAuthenticated = async (req, res, next) => {
 var requireRole = (requiredRole) => {
   return async (req, res, next) => {
     try {
-      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!req.user || !req.user.claims) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+      const userId = req.user.claims.sub;
+      console.log("Checking permissions for user:", userId);
+      const currentUser = await storage.getUser(userId);
       if (!currentUser) {
         return res.status(401).json({ message: "User not found" });
       }
+      console.log("User role:", currentUser.role, "Required role:", requiredRole);
       if (!hasPermission(currentUser.role, requiredRole)) {
         const roleNames = {
           user: "Basic User",
@@ -723,7 +1150,7 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to impersonate user" });
     }
   });
-  app2.get("/api/users", requireAdmin, async (req, res) => {
+  app2.get("/api/users", requireApprover, async (req, res) => {
     try {
       const users2 = await storage.getAllUsers();
       res.json(users2);
@@ -761,6 +1188,29 @@ async function registerRoutes(app2) {
     } catch (error) {
       console.error("Error creating user:", error);
       res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+  app2.put("/api/users/:id", requireAdmin, async (req, res) => {
+    try {
+      const validatedData = updateUserSchema.parse(req.body);
+      const existingUser = await storage.getUser(req.params.id);
+      if (!existingUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (validatedData.email && validatedData.email !== existingUser.email) {
+        const userWithEmail = await storage.getUserByEmail(validatedData.email);
+        if (userWithEmail && userWithEmail.id !== req.params.id) {
+          return res.status(400).json({ message: "Email is already in use by another user" });
+        }
+      }
+      const user = await storage.updateUser(req.params.id, validatedData);
+      res.json(user);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      console.error("Error updating user:", error);
+      res.status(500).json({ message: "Failed to update user" });
     }
   });
   app2.put("/api/users/:id/role", requireAdmin, async (req, res) => {
@@ -848,6 +1298,27 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to update expense status" });
     }
   });
+  app2.put("/api/expenses/:id/resubmit", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const expense = await storage.getExpenseById(req.params.id);
+      if (!expense) {
+        return res.status(404).json({ message: "Expense not found" });
+      }
+      if (!(user?.role === "admin" || user?.role === "approver") && expense.userId !== userId) {
+        return res.status(403).json({ message: "You can only resubmit your own expenses" });
+      }
+      if (expense.status !== "rejected") {
+        return res.status(403).json({ message: "Only rejected expenses can be resubmitted" });
+      }
+      const resubmittedExpense = await storage.updateExpenseStatus(req.params.id, "pending");
+      res.json(resubmittedExpense);
+    } catch (error) {
+      console.error("Error resubmitting expense:", error);
+      res.status(500).json({ message: "Failed to resubmit expense" });
+    }
+  });
   app2.get("/api/expenses/my/recent", isAuthenticated, async (req, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -858,7 +1329,7 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch recent user expenses" });
     }
   });
-  app2.get("/api/expenses/pending", requireAdmin, async (req, res) => {
+  app2.get("/api/expenses/pending", requireApprover, async (req, res) => {
     try {
       const expenses2 = await storage.getPendingExpenses();
       res.json(expenses2);
@@ -914,6 +1385,16 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch expense stats" });
     }
   });
+  app2.get("/api/expenses/my-stats", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const stats = await storage.getExpenseStats(userId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching user expense stats:", error);
+      res.status(500).json({ message: "Failed to fetch user expense stats" });
+    }
+  });
   app2.get("/api/expenses/analytics/categories", isAuthenticated, async (req, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -934,6 +1415,43 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch monthly analytics" });
     }
   });
+  app2.get("/api/expenses/analytics/period/:period", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { period } = req.params;
+      if (!["day", "month", "quarter"].includes(period)) {
+        return res.status(400).json({ message: "Invalid period. Must be 'day', 'month', or 'quarter'" });
+      }
+      const categoryData = await storage.getExpensesByPeriod(userId, period);
+      res.json(categoryData);
+    } catch (error) {
+      console.error("Error fetching period analytics:", error);
+      res.status(500).json({ message: "Failed to fetch period analytics" });
+    }
+  });
+  app2.get("/api/expenses/analytics/daily", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const year = parseInt(req.query.year) || (/* @__PURE__ */ new Date()).getFullYear();
+      const month = parseInt(req.query.month) || (/* @__PURE__ */ new Date()).getMonth() + 1;
+      const dailyData = await storage.getDailyExpenses(userId, year, month);
+      res.json(dailyData);
+    } catch (error) {
+      console.error("Error fetching daily analytics:", error);
+      res.status(500).json({ message: "Failed to fetch daily analytics" });
+    }
+  });
+  app2.get("/api/expenses/analytics/quarterly", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const year = parseInt(req.query.year) || (/* @__PURE__ */ new Date()).getFullYear();
+      const quarterlyData = await storage.getQuarterlyExpenses(userId, year);
+      res.json(quarterlyData);
+    } catch (error) {
+      console.error("Error fetching quarterly analytics:", error);
+      res.status(500).json({ message: "Failed to fetch quarterly analytics" });
+    }
+  });
   app2.post("/api/expenses", isAuthenticated, upload.single("receipt"), async (req, res) => {
     try {
       const currentUserId = req.user.claims.sub;
@@ -944,11 +1462,18 @@ async function registerRoutes(app2) {
         expenseUserId = req.body.userId;
         submittedBy = currentUserId;
       }
+      const dateValue = req.body.date;
+      let processedDate;
+      if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+        processedDate = /* @__PURE__ */ new Date(`${dateValue}T12:00:00`);
+      } else {
+        processedDate = new Date(dateValue);
+      }
       const expenseData = {
         ...req.body,
         userId: expenseUserId,
         submittedBy,
-        date: new Date(req.body.date),
+        date: processedDate,
         receiptUrl: req.file ? `/uploads/${req.file.filename}` : void 0
       };
       const { userId: _, ...dataForValidation } = expenseData;
@@ -968,23 +1493,42 @@ async function registerRoutes(app2) {
   });
   app2.put("/api/expenses/:id", isAuthenticated, async (req, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const currentUserId = req.user.claims.sub;
+      const user = await storage.getUser(currentUserId);
       const expense = await storage.getExpenseById(req.params.id);
       if (!expense) {
         return res.status(404).json({ message: "Expense not found" });
       }
-      if (!(user?.role === "admin" || user?.role === "approver") && expense.userId !== userId) {
+      if (!(user?.role === "admin" || user?.role === "approver") && expense.userId !== currentUserId) {
         return res.status(403).json({ message: "You can only edit your own expenses" });
       }
-      if (expense.status === "approved" && !(user?.role === "admin" || user?.role === "approver")) {
-        return res.status(403).json({ message: "Cannot edit approved expenses" });
+      if (!(user?.role === "admin" || user?.role === "approver")) {
+        if (expense.status === "approved") {
+          return res.status(403).json({ message: "Cannot edit approved expenses" });
+        }
+        if (!["pending", "rejected"].includes(expense.status)) {
+          return res.status(403).json({ message: "Can only edit pending or rejected expenses" });
+        }
       }
-      const validatedData = insertExpenseSchema.partial().parse(req.body);
+      console.log("Updating expense with data:", JSON.stringify(req.body, null, 2));
+      console.log("Current expense status:", expense.status);
+      console.log("User role:", user?.role);
+      let processedUpdateData = { ...req.body };
+      if (req.body.date) {
+        const dateValue = req.body.date;
+        if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+          processedUpdateData.date = /* @__PURE__ */ new Date(`${dateValue}T12:00:00`);
+        } else if (typeof dateValue === "string") {
+          processedUpdateData.date = new Date(dateValue);
+        }
+      }
+      const validatedData = updateExpenseSchema.parse(processedUpdateData);
+      console.log("Validated data:", JSON.stringify(validatedData, null, 2));
       const updatedExpense = await storage.updateExpense(req.params.id, validatedData);
       res.json(updatedExpense);
     } catch (error) {
       if (error instanceof ZodError) {
+        console.error("Zod validation error:", JSON.stringify(error.errors, null, 2));
         return res.status(400).json({ message: "Invalid data", errors: error.errors });
       }
       console.error("Error updating expense:", error);
@@ -999,17 +1543,98 @@ async function registerRoutes(app2) {
       if (!expense) {
         return res.status(404).json({ message: "Expense not found" });
       }
-      if (!(user?.role === "admin" || user?.role === "approver") && expense.userId !== userId) {
-        return res.status(403).json({ message: "You can only delete your own expenses" });
-      }
-      if (expense.status === "approved") {
-        return res.status(403).json({ message: "Cannot delete approved expenses" });
+      if (user?.role === "admin" || user?.role === "approver") {
+        console.log(`Admin/Approver ${userId} deleting expense ${req.params.id} with status ${expense.status}`);
+      } else {
+        if (expense.userId !== userId) {
+          return res.status(403).json({ message: "You can only delete your own expenses" });
+        }
+        if (expense.status === "approved") {
+          return res.status(403).json({ message: "Cannot delete approved expenses" });
+        }
       }
       await storage.deleteExpense(req.params.id);
       res.json({ message: "Expense deleted successfully" });
     } catch (error) {
       console.error("Error deleting expense:", error);
       res.status(500).json({ message: "Failed to delete expense" });
+    }
+  });
+  app2.get("/api/reports/expenses", requireApprover, async (req, res) => {
+    try {
+      const { startDate, endDate, status, categoryId, userId } = req.query;
+      const filters = {};
+      if (startDate) {
+        filters.startDate = new Date(startDate);
+      }
+      if (endDate) {
+        filters.endDate = new Date(endDate);
+      }
+      if (status && status !== "all") {
+        filters.status = status;
+      }
+      if (categoryId && categoryId !== "all") {
+        filters.categoryId = categoryId;
+      }
+      if (userId && userId !== "all") {
+        filters.userId = userId;
+      }
+      const reportData = await storage.getExpenseReport(filters);
+      res.json(reportData);
+    } catch (error) {
+      console.error("Error generating expense report:", error);
+      res.status(500).json({ message: "Failed to generate expense report" });
+    }
+  });
+  app2.get("/api/admin/export/expenses", requireAdmin, async (req, res) => {
+    try {
+      const expenses2 = await storage.getAllExpensesForExport();
+      res.json({
+        data: expenses2,
+        exportDate: (/* @__PURE__ */ new Date()).toISOString(),
+        recordCount: expenses2.length
+      });
+    } catch (error) {
+      console.error("Error exporting expenses:", error);
+      res.status(500).json({ message: "Failed to export expenses" });
+    }
+  });
+  app2.post("/api/admin/import/expenses", requireAdmin, async (req, res) => {
+    try {
+      const { expenses: expenses2 } = req.body;
+      if (!Array.isArray(expenses2)) {
+        return res.status(400).json({ message: "Invalid import data format" });
+      }
+      const importResults = await storage.importExpenses(expenses2);
+      res.json({
+        message: "Import completed",
+        imported: importResults.imported,
+        errors: importResults.errors
+      });
+    } catch (error) {
+      console.error("Error importing expenses:", error);
+      res.status(500).json({ message: "Failed to import expenses" });
+    }
+  });
+  app2.delete("/api/admin/purge/expenses", requireAdmin, async (req, res) => {
+    try {
+      const deletedCount = await storage.purgeAllExpenses();
+      res.json({
+        message: "All expense records have been purged",
+        deletedCount
+      });
+    } catch (error) {
+      console.error("Error purging expenses:", error);
+      res.status(500).json({ message: "Failed to purge expenses" });
+    }
+  });
+  app2.get("/api/admin/database/stats", requireAdmin, async (req, res) => {
+    try {
+      const stats = await storage.getDatabaseStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching database stats:", error);
+      res.status(500).json({ message: "Failed to fetch database statistics" });
     }
   });
   app2.use("/uploads", express.static("uploads"));

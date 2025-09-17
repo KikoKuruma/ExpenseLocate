@@ -71,8 +71,13 @@ This guide provides instructions for deploying ExpenseLocator in a Docker contai
 | `REPLIT_REDIRECT_URI` | OAuth callback URL | Yes |
 | `POSTGRES_PASSWORD` | Database password | Yes |
 | `SESSION_SECRET` | Session encryption key | Yes |
+| `REPLIT_DOMAINS` | Comma-separated list of deployed Replit domains. Leave unset to use the local admin fallback. | No (required for Replit SSO) |
+| `DEFAULT_ADMIN_ID` | Override the fallback admin user ID when Replit SSO is disabled. | No |
+| `DEFAULT_ADMIN_EMAIL` | Override the fallback admin email when Replit SSO is disabled. | No |
+| `DEFAULT_ADMIN_FIRST_NAME` | Override the fallback admin first name when Replit SSO is disabled. | No |
+| `DEFAULT_ADMIN_LAST_NAME` | Override the fallback admin last name when Replit SSO is disabled. | No |
 | `ALLOWED_ORIGINS` | Comma-separated allowed origins | Yes |
-| `APP_PORT` | Application port (default: 80) | No |
+| `APP_PORT` | Application port (default: 5000) | No |
 | `POSTGRES_PORT` | Database port (default: 5432) | No |
 
 ### Replit Authentication Setup
@@ -81,6 +86,13 @@ This guide provides instructions for deploying ExpenseLocator in a Docker contai
 2. Create a new OAuth application
 3. Set the redirect URI to: `https://your-domain.com/api/auth/callback`
 4. Copy the Client ID and Secret to your `.env` file
+
+### Local/Docker Authentication Fallback
+
+If you are running ExpenseLocator locally or inside Docker without Replit Single Sign-On, simply omit `REPLIT_DOMAINS` from your
+environment configuration. The server will automatically create a local admin session using the values from the `DEFAULT_ADMIN_*`
+variables (or their defaults) so you can access the UI immediately. This fallback is intended for development and self-hosted
+deployments that do not rely on Replit authentication.
 
 ## Architecture
 
@@ -188,7 +200,7 @@ sudo systemctl status expenselocator
 
 ### Option 2: Using Cloudflare or other CDN
 
-Configure your CDN to proxy requests to your VM's IP address on port 80.
+Configure your CDN to proxy requests to your VM's IP address on the port specified by `APP_PORT` (default: 5000).
 
 ## Monitoring and Logs
 
@@ -302,10 +314,10 @@ The installation script configures UFW with the following rules:
 
 3. **Port conflicts:**
    ```bash
-   # Check what's using port 80
-   sudo netstat -tulpn | grep :80
-   
-   # Change APP_PORT in .env
+   # Check what's using the application port (default: 5000)
+   sudo netstat -tulpn | grep :5000
+
+   # Change APP_PORT in .env if needed
    nano .env
    ```
 

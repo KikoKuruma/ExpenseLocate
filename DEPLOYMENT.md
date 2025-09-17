@@ -83,6 +83,16 @@ docker-compose up -d
 | `SESSION_SECRET` | Session encryption key | `your-32-char-secret` |
 | `ALLOWED_ORIGINS` | Allowed origins | `https://your-domain.com` |
 
+### Optional Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REPLIT_DOMAINS` | Comma-separated list of deployed Replit domains. Required only when using Replit SSO. | _(unset)_ |
+| `DEFAULT_ADMIN_ID` | Override the fallback admin user ID when Replit SSO is disabled. | `local-admin` |
+| `DEFAULT_ADMIN_EMAIL` | Override the fallback admin email when Replit SSO is disabled. | `admin@example.com` |
+| `DEFAULT_ADMIN_FIRST_NAME` | Override the fallback admin first name when Replit SSO is disabled. | `Local` |
+| `DEFAULT_ADMIN_LAST_NAME` | Override the fallback admin last name when Replit SSO is disabled. | `Admin` |
+
 ### Setting up Replit Authentication
 
 1. Go to [Replit Account Settings](https://replit.com/account/authentication)
@@ -92,6 +102,9 @@ docker-compose up -d
    - **Description:** Expense management system
    - **Redirect URI:** `https://your-domain.com/api/auth/callback`
 4. Copy the Client ID and Secret to your `.env` file
+
+If you do not configure `REPLIT_DOMAINS`, ExpenseLocator will automatically provision a local admin session using the values
+above so you can access the application immediately in Docker or other self-hosted environments.
 
 ## Deployment Options
 
@@ -134,6 +147,11 @@ gcloud compute firewall-rules create allow-http \
 
 gcloud compute firewall-rules create allow-https \
   --allow tcp:443 --source-ranges 0.0.0.0/0 --target-tags https-server
+
+# Allow direct access to the application port if you're not using the nginx profile
+# (adjust 5000 if you've changed APP_PORT)
+gcloud compute firewall-rules create allow-app-port \
+  --allow tcp:5000 --source-ranges 0.0.0.0/0 --target-tags http-server
 
 # SSH into the instance
 gcloud compute ssh expenselocator-vm
@@ -269,12 +287,12 @@ expenselocator-maintenance restart
    sudo chown -R expenselocator:expenselocator /opt/expenselocator
    ```
 
-3. **Port 80 already in use:**
+3. **Application port already in use:**
    ```bash
-   # Check what's using port 80
-   sudo netstat -tulpn | grep :80
-   
-   # Stop conflicting service
+   # Check what's using the application port (default: 5000)
+   sudo netstat -tulpn | grep :5000
+
+   # Stop the conflicting service or change APP_PORT in .env
    sudo systemctl stop apache2  # or nginx
    ```
 

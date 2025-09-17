@@ -6,11 +6,15 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
+import { UserRole } from "@shared/schema";
 import { storage } from "./storage";
 
-if (!process.env.REPLIT_DOMAINS) {
-  throw new Error("Environment variable REPLIT_DOMAINS not provided");
-}
+const replitDomains = (process.env.REPLIT_DOMAINS ?? "")
+  .split(",")
+  .map((domain) => domain.trim())
+  .filter((domain) => domain.length > 0);
+
+const replitAuthEnabled = replitDomains.length > 0;
 
 const getOidcConfig = memoize(
   async () => {
@@ -72,6 +76,63 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  if (!replitAuthEnabled) {
+    const fallbackUserId = process.env.DEFAULT_ADMIN_ID ?? "local-admin";
+    const fallbackEmail = process.env.DEFAULT_ADMIN_EMAIL ?? "admin@example.com";
+    const fallbackFirstName = process.env.DEFAULT_ADMIN_FIRST_NAME ?? "Local";
+    const fallbackLastName = process.env.DEFAULT_ADMIN_LAST_NAME ?? "Admin";
+
+    const fallbackUser = await storage.upsertUser({
+      id: fallbackUserId,
+      email: fallbackEmail,
+      firstName: fallbackFirstName,
+      lastName: fallbackLastName,
+      profileImageUrl: null,
+      role: UserRole.ADMIN,
+    });
+
+    console.warn(
+      "REPLIT_DOMAINS not set. Falling back to a local admin session for development and Docker environments."
+    );
+
+    app.use((req, _res, next) => {
+      const claims = {
+        sub: fallbackUser.id,
+        email: fallbackUser.email,
+        first_name: fallbackUser.firstName ?? fallbackFirstName,
+        last_name: fallbackUser.lastName ?? fallbackLastName,
+      };
+
+      (req as any).user = {
+        id: fallbackUser.id,
+        claims,
+        expires_at: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365,
+      };
+      (req as any).isAuthenticated = () => true;
+      next();
+    });
+
+    app.get("/api/login", (_req, res) => {
+      res.json({
+        message: "Replit SSO disabled. Using local admin session.",
+        user: {
+          id: fallbackUser.id,
+          email: fallbackUser.email,
+        },
+      });
+    });
+
+    app.get("/api/callback", (_req, res) => {
+      res.redirect("/");
+    });
+
+    app.get("/api/logout", (_req, res) => {
+      res.json({ message: "Replit SSO disabled. Logout is a no-op." });
+    });
+
+    return;
+  }
+
   const config = await getOidcConfig();
 
   const verify: VerifyFunction = async (
@@ -107,8 +168,7 @@ export async function setupAuth(app: Express) {
     }
   };
 
-  for (const domain of process.env
-    .REPLIT_DOMAINS!.split(",")) {
+  for (const domain of replitDomains) {
     const strategy = new Strategy(
       {
         name: `replitauth:${domain}`,
@@ -125,7 +185,7 @@ export async function setupAuth(app: Express) {
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
-    const domain = process.env.REPLIT_DOMAINS!.split(",")[0];
+    const domain = replitDomains[0];
     passport.authenticate(`replitauth:${domain}`, {
       prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
@@ -133,7 +193,7 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/callback", (req, res, next) => {
-    const domain = process.env.REPLIT_DOMAINS!.split(",")[0];
+    const domain = replitDomains[0];
     passport.authenticate(`replitauth:${domain}`, {
       successReturnToOrRedirect: "/",
       failureRedirect: "/api/login",
@@ -141,7 +201,7 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/logout", (req, res) => {
-    const domain = process.env.REPLIT_DOMAINS!.split(",")[0];
+    const domain = replitDomains[0];
     req.logout(() => {
       res.redirect(
         client.buildEndSessionUrl(config, {
