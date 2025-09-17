@@ -14,7 +14,7 @@ import {
   hasPermission,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, ilike } from "drizzle-orm";
+import { eq, desc, and, sql, ilike, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 export interface IStorage {
@@ -285,7 +285,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(submittedByAlias, eq(expenses.submittedBy, submittedByAlias.id))
       .orderBy(desc(expenses.createdAt));
 
-    const conditions = [];
+    const conditions: SQL<unknown>[] = [];
     
     if (userId) {
       conditions.push(eq(expenses.userId, userId));
@@ -764,9 +764,10 @@ export class DatabaseStorage implements IStorage {
     }
     
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    
+    const whereCondition = whereClause ?? sql`true`;
+
     // Get filtered expenses
-    const expenseResults = await db
+    const expenseQuery = db
       .select({
         id: expenses.id,
         userId: expenses.userId,
@@ -795,18 +796,21 @@ export class DatabaseStorage implements IStorage {
       .from(expenses)
       .leftJoin(categories, eq(expenses.categoryId, categories.id))
       .leftJoin(users, eq(expenses.userId, users.id))
-      .leftJoin(submittedByAlias, eq(expenses.submittedBy, submittedByAlias.id))
-      .where(whereClause)
+      .leftJoin(submittedByAlias, eq(expenses.submittedBy, submittedByAlias.id));
+
+    const expenseResults = await expenseQuery
+      .where(whereCondition)
       .orderBy(desc(expenses.date));
-    
+
     // Calculate totals
-    const [totals] = await db
+    let totalsQuery = db
       .select({
         totalAmount: sql<number>`COALESCE(SUM(CAST(${expenses.amount} AS DECIMAL)), 0)`,
         expenseCount: sql<number>`COUNT(*)`,
       })
-      .from(expenses)
-      .where(whereClause);
+      .from(expenses);
+
+    const [totals] = await totalsQuery.where(whereCondition);
     
     const formattedExpenses = expenseResults.map(result => ({
       ...result,
